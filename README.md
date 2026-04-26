@@ -474,3 +474,9 @@ If this project is helpful to you, welcome to give us a ⭐️ Star！
 <sub>Built with ❤️ by QuantumNous</sub>
 
 </div>
+
+---
+
+## 致谢
+
+感谢 [LinuxDo](https://linux.do) 社区的交流、分享与反馈。
