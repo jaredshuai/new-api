@@ -37,6 +37,23 @@ func TestCodexImagePromptFromChatRequestUsesUserText(t *testing.T) {
 	}
 }
 
+func TestCodexImagePromptFromChatRequestIncludesTextContext(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: codexchannel.CodexImageModel,
+		Messages: []dto.Message{
+			{Role: "system", Content: "你是海报设计师"},
+			{Role: "developer", Content: "优先使用清晰中文排版"},
+			{Role: "user", Content: "画一张夜市读书会海报"},
+		},
+	}
+
+	got := codexImagePromptFromChatRequest(req)
+	want := "Instructions:\n你是海报设计师\n\n优先使用清晰中文排版\n\nUser request:\n画一张夜市读书会海报"
+	if got != want {
+		t.Fatalf("unexpected prompt: got %q want %q", got, want)
+	}
+}
+
 func TestIsCodexImageChatCompletionRequestUsesMappedModel(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		RelayMode:       relayconstant.RelayModeChatCompletions,
@@ -50,6 +67,23 @@ func TestIsCodexImageChatCompletionRequestUsesMappedModel(t *testing.T) {
 
 	if isCodexImageChatCompletionRequest(info, req) {
 		t.Fatalf("remapped non-image upstream model should not enter codex image chat shim")
+	}
+}
+
+func TestValidateSimpleCodexImageChatRequestAllowsTextContext(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: codexchannel.CodexImageModel,
+		Messages: []dto.Message{
+			{Role: "system", Content: "你是设计师"},
+			{Role: "developer", Content: []any{
+				map[string]any{"type": "text", "text": "只输出中文海报"},
+			}},
+			{Role: "user", Content: "画图"},
+		},
+	}
+
+	if err := validateSimpleCodexImageChatRequest(req); err != nil {
+		t.Fatalf("expected text context to be accepted, got %v", err)
 	}
 }
 
@@ -84,12 +118,22 @@ func TestValidateSimpleCodexImageChatRequestRejectsComplexInputs(t *testing.T) {
 			},
 		},
 		{
-			name: "system_context",
+			name: "assistant_history",
 			req: &dto.GeneralOpenAIRequest{
 				Model: codexchannel.CodexImageModel,
 				Messages: []dto.Message{
-					{Role: "system", Content: "你是设计师"},
+					{Role: "assistant", Content: "之前已经生成过主题"},
 					{Role: "user", Content: "画图"},
+				},
+			},
+		},
+		{
+			name: "context_after_user",
+			req: &dto.GeneralOpenAIRequest{
+				Model: codexchannel.CodexImageModel,
+				Messages: []dto.Message{
+					{Role: "user", Content: "画图"},
+					{Role: "system", Content: "你是设计师"},
 				},
 			},
 		},

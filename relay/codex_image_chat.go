@@ -145,15 +145,28 @@ func codexImagePromptFromChatRequest(request *dto.GeneralOpenAIRequest) string {
 	if request == nil {
 		return ""
 	}
-	for i := len(request.Messages) - 1; i >= 0; i-- {
-		if !strings.EqualFold(strings.TrimSpace(request.Messages[i].Role), "user") {
+	var contextParts []string
+	userPrompt := ""
+	for _, message := range request.Messages {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		text := textFromChatMessage(message)
+		if text == "" {
 			continue
 		}
-		if text := textFromChatMessage(request.Messages[i]); text != "" {
-			return text
+		switch role {
+		case "system", "developer":
+			contextParts = append(contextParts, text)
+		case "user":
+			userPrompt = text
 		}
 	}
-	return ""
+	if userPrompt == "" {
+		return ""
+	}
+	if len(contextParts) == 0 {
+		return userPrompt
+	}
+	return strings.TrimSpace("Instructions:\n" + strings.Join(contextParts, "\n\n") + "\n\nUser request:\n" + userPrompt)
 }
 
 func validateSimpleCodexImageChatRequest(request *dto.GeneralOpenAIRequest) *types.NewAPIError {
@@ -165,23 +178,34 @@ func validateSimpleCodexImageChatRequest(request *dto.GeneralOpenAIRequest) *typ
 	}
 
 	userMessages := 0
+	seenUser := false
 	for _, message := range request.Messages {
-		role := strings.TrimSpace(message.Role)
+		role := strings.ToLower(strings.TrimSpace(message.Role))
 		if role == "" {
 			return unsupportedCodexImageChatRequest("message role is required")
 		}
 		if len(message.ToolCalls) > 0 || strings.TrimSpace(message.ToolCallId) != "" {
 			return unsupportedCodexImageChatRequest("tool messages are not supported")
 		}
-		if !strings.EqualFold(role, "user") {
-			return unsupportedCodexImageChatRequest("only a single user text message is supported")
-		}
-		userMessages++
-		if userMessages > 1 {
-			return unsupportedCodexImageChatRequest("multi-turn chat history is not supported")
-		}
-		if !isTextOnlyChatMessage(message) {
-			return unsupportedCodexImageChatRequest("only text message content is supported")
+		switch role {
+		case "system", "developer":
+			if seenUser {
+				return unsupportedCodexImageChatRequest("system/developer context after the user prompt is not supported")
+			}
+			if !isTextOnlyOrEmptyChatMessage(message) {
+				return unsupportedCodexImageChatRequest("only text system/developer context is supported")
+			}
+		case "user":
+			userMessages++
+			seenUser = true
+			if userMessages > 1 {
+				return unsupportedCodexImageChatRequest("multi-turn chat history is not supported")
+			}
+			if !isTextOnlyChatMessage(message) {
+				return unsupportedCodexImageChatRequest("only text user message content is supported")
+			}
+		default:
+			return unsupportedCodexImageChatRequest("assistant/history messages are not supported")
 		}
 	}
 	if userMessages == 0 {
@@ -190,9 +214,24 @@ func validateSimpleCodexImageChatRequest(request *dto.GeneralOpenAIRequest) *typ
 	return nil
 }
 
+func isTextOnlyOrEmptyChatMessage(message dto.Message) bool {
+	if message.Content == nil {
+		return true
+	}
+	if message.IsStringContent() {
+		return true
+	}
+	for _, part := range message.ParseContent() {
+		if part.Type != dto.ContentTypeText {
+			return false
+		}
+	}
+	return true
+}
+
 func unsupportedCodexImageChatRequest(reason string) *types.NewAPIError {
 	return types.NewErrorWithStatusCode(
-		fmt.Errorf("codex gpt-image-2 chat compatibility only supports a single user text prompt: %s", reason),
+		fmt.Errorf("codex gpt-image-2 chat compatibility only supports optional text system/developer context plus a single user text prompt: %s", reason),
 		types.ErrorCodeInvalidRequest,
 		http.StatusBadRequest,
 		types.ErrOptionWithSkipRetry(),
