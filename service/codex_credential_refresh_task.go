@@ -68,7 +68,7 @@ func runCodexCredentialAutoRefreshOnce() {
 	for {
 		var channels []*model.Channel
 		err := model.DB.
-			Select("id", "name", "key", "status", "channel_info").
+			Select("id", "type", "name", "key", "status", "base_url", "setting", "other_info", "channel_info").
 			Where("type = ? AND (status = ? OR status = ?)",
 				constant.ChannelTypeCodex,
 				common.ChannelStatusEnabled,
@@ -96,6 +96,13 @@ func runCodexCredentialAutoRefreshOnce() {
 				continue
 			}
 
+			if enableCodexChannelIfQuotaAutoEnableDue(ctx, ch) {
+				continue
+			}
+			if recoverCodexQuotaAutoEnableWithoutSchedule(ctx, ch) {
+				continue
+			}
+
 			rawKey := strings.TrimSpace(ch.Key)
 			if rawKey == "" {
 				continue
@@ -107,26 +114,27 @@ func runCodexCredentialAutoRefreshOnce() {
 			}
 
 			refreshToken := strings.TrimSpace(oauthKey.RefreshToken)
-			if refreshToken == "" {
-				continue
+			shouldRefresh := refreshToken != ""
+			if shouldRefresh {
+				expiredAtRaw := strings.TrimSpace(oauthKey.Expired)
+				expiredAt, err := time.Parse(time.RFC3339, expiredAtRaw)
+				if err == nil && !expiredAt.IsZero() && expiredAt.Sub(now) > codexCredentialRefreshThreshold {
+					shouldRefresh = false
+				}
 			}
 
-			expiredAtRaw := strings.TrimSpace(oauthKey.Expired)
-			expiredAt, err := time.Parse(time.RFC3339, expiredAtRaw)
-			if err == nil && !expiredAt.IsZero() && expiredAt.Sub(now) > codexCredentialRefreshThreshold {
-				continue
-			}
+			if shouldRefresh {
+				refreshCtx, cancel := context.WithTimeout(ctx, codexCredentialRefreshTimeout)
+				newKey, _, err := RefreshCodexChannelCredential(refreshCtx, ch.Id, CodexCredentialRefreshOptions{ResetCaches: false})
+				cancel()
+				if err != nil {
+					logger.LogWarn(ctx, fmt.Sprintf("codex credential auto-refresh: channel_id=%d name=%s refresh failed: %v", ch.Id, ch.Name, err))
+					continue
+				}
 
-			refreshCtx, cancel := context.WithTimeout(ctx, codexCredentialRefreshTimeout)
-			newKey, _, err := RefreshCodexChannelCredential(refreshCtx, ch.Id, CodexCredentialRefreshOptions{ResetCaches: false})
-			cancel()
-			if err != nil {
-				logger.LogWarn(ctx, fmt.Sprintf("codex credential auto-refresh: channel_id=%d name=%s refresh failed: %v", ch.Id, ch.Name, err))
-				continue
+				refreshed++
+				logger.LogInfo(ctx, fmt.Sprintf("codex credential auto-refresh: channel_id=%d name=%s refreshed, expires_at=%s", ch.Id, ch.Name, newKey.Expired))
 			}
-
-			refreshed++
-			logger.LogInfo(ctx, fmt.Sprintf("codex credential auto-refresh: channel_id=%d name=%s refreshed, expires_at=%s", ch.Id, ch.Name, newKey.Expired))
 		}
 	}
 
