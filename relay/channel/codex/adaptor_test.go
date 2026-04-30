@@ -71,6 +71,199 @@ func TestConvertOpenAIResponsesRequest_ArrayInputUnchanged(t *testing.T) {
 	}
 }
 
+func TestConvertOpenAIResponsesRequest_ImageModelStringInputBuildsImageTool(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		RelayMode:          relayconstant.RelayModeResponses,
+		ChannelMeta:        &relaycommon.ChannelMeta{},
+		ResponsesUsageInfo: &relaycommon.ResponsesUsageInfo{BuiltInTools: map[string]*relaycommon.BuildInToolInfo{}},
+	}
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{
+		Model: CodexImageModel,
+		Input: json.RawMessage(`"画一张中文海报"`),
+	})
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	request := converted.(dto.OpenAIResponsesRequest)
+	if request.Model != defaultImagesMainModel {
+		t.Fatalf("unexpected upstream model: %s", request.Model)
+	}
+	if request.Stream == nil || !*request.Stream {
+		t.Fatalf("expected upstream stream=true, got %#v", request.Stream)
+	}
+	if gjson.GetBytes(request.Input, "0.content.0.text").String() != "画一张中文海报" {
+		t.Fatalf("prompt was not moved into codex image input: %s", request.Input)
+	}
+	if gjson.GetBytes(request.Tools, "0.type").String() != imageGenerationTool ||
+		gjson.GetBytes(request.Tools, "0.model").String() != CodexImageModel ||
+		gjson.GetBytes(request.ToolChoice, "type").String() != imageGenerationTool {
+		t.Fatalf("image tool was not synthesized: tools=%s tool_choice=%s", request.Tools, request.ToolChoice)
+	}
+	if _, ok := info.ResponsesUsageInfo.BuiltInTools[imageGenerationTool]; !ok {
+		t.Fatalf("image_generation tool usage info was not initialized")
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_ImageModelRawBodyBypassesRawPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adaptor := &Adaptor{}
+	rawBody := []byte(`{"model":"gpt-image-2","input":"画一张猫咪海报"}`)
+	var request dto.OpenAIResponsesRequest
+	if err := common.Unmarshal(rawBody, &request); err != nil {
+		t.Fatalf("request unmarshal failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+	if _, ok := converted.(json.RawMessage); ok {
+		t.Fatalf("gpt-image-2 shortcut should not use raw passthrough")
+	}
+	convertedRequest := converted.(dto.OpenAIResponsesRequest)
+	if convertedRequest.Model != defaultImagesMainModel {
+		t.Fatalf("unexpected upstream model: %s", convertedRequest.Model)
+	}
+	if gjson.GetBytes(convertedRequest.Tools, "0.type").String() != imageGenerationTool {
+		t.Fatalf("image tool was not synthesized: %s", convertedRequest.Tools)
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_ImageModelExplicitEmptyToolsDoesNotShortcut(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adaptor := &Adaptor{}
+	rawBody := []byte(`{"model":"gpt-image-2","input":"画一张猫咪海报","tools":[]}`)
+	var request dto.OpenAIResponsesRequest
+	if err := common.Unmarshal(rawBody, &request); err != nil {
+		t.Fatalf("request unmarshal failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+	raw, ok := converted.(json.RawMessage)
+	if !ok {
+		t.Fatalf("expected raw passthrough when tools is explicit, got %T", converted)
+	}
+	if gjson.GetBytes(raw, "tools").Raw != "[]" {
+		t.Fatalf("explicit empty tools was not preserved: %s", raw)
+	}
+	if gjson.GetBytes(raw, "tool_choice").Exists() {
+		t.Fatalf("tool_choice should not be injected: %s", raw)
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_ImageModelArrayInputDoesNotShortcut(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adaptor := &Adaptor{}
+	rawBody := []byte(`{"model":"gpt-image-2","input":[{"role":"user","content":"画一张猫咪海报"}]}`)
+	var request dto.OpenAIResponsesRequest
+	if err := common.Unmarshal(rawBody, &request); err != nil {
+		t.Fatalf("request unmarshal failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+	raw, ok := converted.(json.RawMessage)
+	if !ok {
+		t.Fatalf("expected raw passthrough for array input, got %T", converted)
+	}
+	if gjson.GetBytes(raw, "tools").Exists() {
+		t.Fatalf("image tool should not be injected for array input: %s", raw)
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_ImageModelExtraFieldsDoNotShortcut(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adaptor := &Adaptor{}
+	rawBody := []byte(`{"model":"gpt-image-2","input":"画一张猫咪海报","instructions":"keep me","client_metadata":{"x":"y"}}`)
+	var request dto.OpenAIResponsesRequest
+	if err := common.Unmarshal(rawBody, &request); err != nil {
+		t.Fatalf("request unmarshal failed: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+	raw, ok := converted.(json.RawMessage)
+	if !ok {
+		t.Fatalf("expected raw passthrough when extra fields are present, got %T", converted)
+	}
+	if got := gjson.GetBytes(raw, "instructions").String(); got != "keep me" {
+		t.Fatalf("instructions should be preserved, got %q in %s", got, raw)
+	}
+	if !gjson.GetBytes(raw, "client_metadata").Exists() {
+		t.Fatalf("raw-only client_metadata should be preserved: %s", raw)
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_ImageModelCompactDoesNotShortcut(t *testing.T) {
+	adaptor := &Adaptor{}
+	stream := false
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponsesCompact,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, dto.OpenAIResponsesRequest{
+		Model:  CodexImageModel,
+		Input:  json.RawMessage(`"画一张中文海报"`),
+		Stream: &stream,
+	})
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	request := converted.(dto.OpenAIResponsesRequest)
+	if request.Model != CodexImageModel {
+		t.Fatalf("compact should keep original model, got %s", request.Model)
+	}
+	if len(request.Tools) != 0 || len(request.ToolChoice) != 0 {
+		t.Fatalf("compact should not synthesize image tool: tools=%s tool_choice=%s", request.Tools, request.ToolChoice)
+	}
+	if request.Stream == nil || *request.Stream {
+		t.Fatalf("compact stream should remain false, got %#v", request.Stream)
+	}
+}
+
 func TestConvertOpenAIResponsesRequest_RawPassthroughPreservesCodexInputItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adaptor := &Adaptor{}
@@ -366,6 +559,36 @@ func TestRelayErrorHandlerPlainText(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "error upstream broke") {
 		t.Fatalf("plain text body was not preserved: %s", err.Error())
+	}
+}
+
+func TestImageMarkdownFromResponseBody(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	info := &relaycommon.RelayInfo{
+		ResponsesUsageInfo: &relaycommon.ResponsesUsageInfo{
+			BuiltInTools: map[string]*relaycommon.BuildInToolInfo{
+				imageGenerationTool: {ToolName: imageGenerationTool},
+			},
+		},
+	}
+
+	body := []byte(`data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"aGVsbG8=","output_format":"png","quality":"low","size":"1024x1024"}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}` + "\n\n")
+	markdown, createdAt, usage, err := ImageMarkdownFromResponseBody(c, info, body)
+	if err != nil {
+		t.Fatalf("ImageMarkdownFromResponseBody returned error: %v", err)
+	}
+	if createdAt != 123 || usage.TotalTokens != 3 {
+		t.Fatalf("unexpected metadata: created=%d usage=%#v", createdAt, usage)
+	}
+	if !strings.Contains(markdown, "data:image/png;base64,aGVsbG8=") {
+		t.Fatalf("unexpected markdown: %s", markdown)
+	}
+	if !c.GetBool("image_generation_call") {
+		t.Fatalf("expected image_generation_call marker")
+	}
+	if got := info.ResponsesUsageInfo.BuiltInTools[imageGenerationTool].CallCount; got != 1 {
+		t.Fatalf("expected image_generation call count 1, got %d", got)
 	}
 }
 

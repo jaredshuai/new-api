@@ -207,6 +207,10 @@ func IsRawResponsesRequest(request any) bool {
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	isCompact := info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact
 
+	if imageRequest, ok, err := buildCodexImageShortcutResponsesRequest(c, info, request, isCompact); ok || err != nil {
+		return imageRequest, err
+	}
+
 	if rawRequest, ok, err := buildCodexRawResponsesRequest(c, info, request, isCompact); ok || err != nil {
 		return rawRequest, err
 	}

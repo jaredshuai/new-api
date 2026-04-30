@@ -343,6 +343,9 @@ func mergeResponseUsage(dst *dto.Usage, src *dto.Usage) {
 }
 
 func markImageGenerationCall(c *gin.Context, quality string, size string) {
+	if c == nil {
+		return
+	}
 	c.Set("image_generation_call", true)
 	if strings.TrimSpace(quality) != "" {
 		c.Set("image_generation_call_quality", quality)

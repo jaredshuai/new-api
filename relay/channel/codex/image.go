@@ -69,7 +69,9 @@ func buildCodexImageResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo
 	if responseFormat == "" {
 		responseFormat = "b64_json"
 	}
-	c.Set(ginKeyCodexImageResponseFormat, responseFormat)
+	if c != nil {
+		c.Set(ginKeyCodexImageResponseFormat, responseFormat)
+	}
 
 	tool := map[string]any{
 		"type":   "image_generation",
@@ -136,6 +138,32 @@ func buildCodexImageResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo
 		ToolChoice: toolChoiceRaw,
 		Tools:      toolsRaw,
 	}, nil
+}
+
+func BuildCodexImageGenerationResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, prompt string) (dto.OpenAIResponsesRequest, error) {
+	return buildCodexImageResponsesRequest(c, info, dto.ImageRequest{
+		Model:  CodexImageModel,
+		Prompt: prompt,
+	})
+}
+
+func EnsureResponsesImageGenerationTool(info *relaycommon.RelayInfo) {
+	if info == nil {
+		return
+	}
+	if info.ResponsesUsageInfo == nil {
+		info.ResponsesUsageInfo = &relaycommon.ResponsesUsageInfo{
+			BuiltInTools: make(map[string]*relaycommon.BuildInToolInfo),
+		}
+	}
+	if info.ResponsesUsageInfo.BuiltInTools == nil {
+		info.ResponsesUsageInfo.BuiltInTools = make(map[string]*relaycommon.BuildInToolInfo)
+	}
+	if _, ok := info.ResponsesUsageInfo.BuiltInTools[imageGenerationTool]; !ok {
+		info.ResponsesUsageInfo.BuiltInTools[imageGenerationTool] = &relaycommon.BuildInToolInfo{
+			ToolName: imageGenerationTool,
+		}
+	}
 }
 
 func collectImageEditInputs(c *gin.Context, request dto.ImageRequest) ([]string, string, *multipart.Form, error) {
@@ -372,6 +400,35 @@ func collectImagesFromResponseBody(body []byte) ([]imageCallResult, int64, *dto.
 		return collectImagesFromSSE(body)
 	}
 	return extractImagesFromCompletedJSON(body)
+}
+
+func ImageMarkdownFromResponseBody(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (string, int64, *dto.Usage, *types.NewAPIError) {
+	results, createdAt, usage, firstMeta, newAPIError := collectImagesFromResponseBody(body)
+	if newAPIError != nil {
+		return "", 0, nil, newAPIError
+	}
+	if len(results) == 0 {
+		return "", 0, nil, types.NewOpenAIError(fmt.Errorf("upstream did not return image output"), types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
+
+	if firstMeta.Result == "" {
+		firstMeta = results[0]
+	}
+	markImageGenerationCall(c, firstMeta.Quality, firstMeta.Size)
+	recordResponsesBuiltInToolCall(info, imageGenerationTool)
+
+	var builder strings.Builder
+	for i, result := range results {
+		if i > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString("![generated image](data:")
+		builder.WriteString(mimeTypeFromOutputFormat(result.OutputFormat))
+		builder.WriteString(";base64,")
+		builder.WriteString(result.Result)
+		builder.WriteString(")")
+	}
+	return builder.String(), createdAt, usage, nil
 }
 
 func collectImagesFromSSE(body []byte) ([]imageCallResult, int64, *dto.Usage, imageCallResult, *types.NewAPIError) {
