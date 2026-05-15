@@ -107,6 +107,70 @@ func handleResponsesStream(c *gin.Context, resp *http.Response, info *relaycommo
 	return usage, nil
 }
 
+func ResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	defer service.CloseResponseBodyGracefully(resp)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+
+	responseBody := body
+	var usage *dto.Usage
+	if looksLikeSSE(body) {
+		var newAPIError *types.NewAPIError
+		responseBody, usage, newAPIError = collectCompletedResponseFromSSE(body)
+		if newAPIError != nil {
+			return nil, newAPIError
+		}
+	}
+
+	var responsesResp dto.OpenAIResponsesResponse
+	if err := common.Unmarshal(responseBody, &responsesResp); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+
+	chatID := relayhelper.GetResponseID(c)
+	chatResp, convertedUsage, err := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatID)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if convertedUsage != nil && convertedUsage.TotalTokens != 0 {
+		usage = convertedUsage
+	}
+	if usage == nil || usage.TotalTokens == 0 {
+		text := service.ExtractOutputTextFromResponses(&responsesResp)
+		modelName := ""
+		if info != nil && info.ChannelMeta != nil {
+			modelName = info.UpstreamModelName
+		}
+		estimatePromptTokens := 0
+		if info != nil {
+			estimatePromptTokens = info.GetEstimatePromptTokens()
+		}
+		usage = service.ResponseText2Usage(c, text, modelName, estimatePromptTokens)
+	}
+	if usage != nil {
+		chatResp.Usage = *usage
+	}
+
+	responseJSON, err := common.Marshal(chatResp)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+
+	jsonResp := cloneResponseWithContentType(resp, "application/json")
+	service.IOCopyBytesGracefully(c, jsonResp, responseJSON)
+	return usage, nil
+}
+
 func writeResponsesStreamPayload(c *gin.Context, eventType string, data string) {
 	if eventType != "" {
 		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", eventType)})

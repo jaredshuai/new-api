@@ -332,6 +332,105 @@ func TestConvertOpenAIResponsesRequest_RawPassthroughPreservesCodexInputItems(t 
 	}
 }
 
+func TestConvertOpenAIResponsesRequest_ChatCompatibilityDoesNotUseRawPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adaptor := &Adaptor{}
+	rawBody := []byte(`{
+		"model":"gpt-5.4",
+		"messages":[{"role":"user","content":"hi"}],
+		"max_completion_tokens":64,
+		"temperature":0.7
+	}`)
+	inputRaw, err := common.Marshal([]map[string]string{{
+		"role":    "user",
+		"content": "hi",
+	}})
+	if err != nil {
+		t.Fatalf("input marshal failed: %v", err)
+	}
+	maxOutputTokens := uint(64)
+	temperature := 0.7
+	request := dto.OpenAIResponsesRequest{
+		Model:           "gpt-5.4",
+		Input:           inputRaw,
+		MaxOutputTokens: &maxOutputTokens,
+		Temperature:     &temperature,
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(rawBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	convertedRequest, ok := converted.(dto.OpenAIResponsesRequest)
+	if !ok {
+		t.Fatalf("chat compatibility path should use converted request, got %T", converted)
+	}
+	jsonData, err := common.Marshal(convertedRequest)
+	if err != nil {
+		t.Fatalf("converted request marshal failed: %v", err)
+	}
+	if gjson.GetBytes(jsonData, "max_completion_tokens").Exists() {
+		t.Fatalf("chat-only max_completion_tokens leaked into codex request: %s", jsonData)
+	}
+	if gjson.GetBytes(jsonData, "messages").Exists() {
+		t.Fatalf("chat messages leaked into codex request: %s", jsonData)
+	}
+	if gjson.GetBytes(jsonData, "max_output_tokens").Exists() {
+		t.Fatalf("codex request should still remove max_output_tokens: %s", jsonData)
+	}
+	if got := gjson.GetBytes(jsonData, "input.0.content").String(); got != "hi" {
+		t.Fatalf("converted responses input was not preserved, got %q in %s", got, jsonData)
+	}
+}
+
+func TestIsCodexRawResponsesRequestPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "responses", path: "/v1/responses", want: true},
+		{name: "responses compact", path: "/v1/responses/compact", want: true},
+		{name: "codex backend responses", path: "/backend-api/codex/responses", want: true},
+		{name: "codex backend responses compact", path: "/backend-api/codex/responses/compact", want: true},
+		{name: "chat completions", path: "/v1/chat/completions", want: false},
+		{name: "pg chat completions", path: "/pg/chat/completions", want: false},
+		{name: "channel test", path: "/api/channel/test/1", want: false},
+		{name: "prefixed responses", path: "/openai/v1/responses", want: false},
+		{name: "empty", path: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			target := tt.path
+			if target == "" {
+				target = "/"
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, target, nil)
+			if tt.path == "" {
+				c.Request.URL.Path = ""
+			}
+
+			if got := isCodexRawResponsesRequestPath(c); got != tt.want {
+				t.Fatalf("isCodexRawResponsesRequestPath(%q)=%v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConvertOpenAIResponsesRequest_RawPassthroughPreservesSystemPromptSetting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adaptor := &Adaptor{}
@@ -437,6 +536,48 @@ func TestHandleResponsesNonStream_AggregatesCodexSSE(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"id":"resp_1"`) {
 		t.Fatalf("response body does not contain completed response: %s", w.Body.String())
+	}
+	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+		t.Fatalf("expected application/json content type, got %q", contentType)
+	}
+}
+
+func TestResponsesToChatHandler_AggregatesCodexSSE(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	body := `event: response.output_item.done` + "\n" +
+		`data: {"type":"response.output_item.done","item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"smoke ok","annotations":[]}]}}` + "\n\n" +
+		`event: response.completed` + "\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","created_at":1,"model":"gpt-5.4","output":[],"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/plain"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-5.4"},
+	}
+
+	usage, err := ResponsesToChatHandler(c, info, resp)
+	if err != nil {
+		t.Fatalf("ResponsesToChatHandler returned error: %v", err)
+	}
+	if usage.PromptTokens != 2 || usage.CompletionTokens != 3 || usage.TotalTokens != 5 {
+		t.Fatalf("unexpected usage: %#v", usage)
+	}
+
+	var chatResp dto.OpenAITextResponse
+	if err := common.Unmarshal(w.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("chat response unmarshal failed: %v; body=%s", err, w.Body.String())
+	}
+	if chatResp.Object != "chat.completion" {
+		t.Fatalf("unexpected object: %q", chatResp.Object)
+	}
+	if got := chatResp.Choices[0].Message.StringContent(); got != "smoke ok" {
+		t.Fatalf("unexpected chat content: %q", got)
 	}
 	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		t.Fatalf("expected application/json content type, got %q", contentType)

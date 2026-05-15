@@ -105,6 +105,9 @@ func buildCodexRawResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return nil, false, nil
 	}
+	if !isCodexRawResponsesRequestPath(c) {
+		return nil, false, nil
+	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, false, err
@@ -197,6 +200,20 @@ func buildCodexRawResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 	}
 
 	return json.RawMessage(out), true, nil
+}
+
+func isCodexRawResponsesRequestPath(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	// Use the original Gin request path. Chat/image compatibility shims rewrite
+	// RelayInfo to Responses internally, but their original body is not raw Responses.
+	switch relayconstant.Path2RelayMode(c.Request.URL.Path) {
+	case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:
+		return true
+	default:
+		return false
+	}
 }
 
 func IsRawResponsesRequest(request any) bool {

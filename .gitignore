@@ -28,6 +28,17 @@ plans
 
 electron/node_modules
 electron/dist
+
+# Local agent/deployment artifacts
+.agent-jobs/
+.commandcode/
+backup/
+bin/new-api-linux-amd64*
+docs/channel-sync-from-ubuntu.md
+scripts/sync-channels-from-ubuntu.ps1
+scripts/sync_channels_from_ubuntu.py
+tools/gpt-image-mcp/
+gpt-image-outputs/
 data/
 .gomodcache/
 .gocache-temp
