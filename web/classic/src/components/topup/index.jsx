@@ -52,9 +52,7 @@ const TopUp = () => {
   const [topUpCount, setTopUpCount] = useState(
     statusState?.status?.min_topup || 1,
   );
-  const [topUpLink, setTopUpLink] = useState(
-    statusState?.status?.top_up_link || '',
-  );
+  const [topUpLink, setTopUpLink] = useState('');
   const [enableOnlineTopUp, setEnableOnlineTopUp] = useState(
     statusState?.status?.enable_online_topup || false,
   );
@@ -112,6 +110,8 @@ const TopUp = () => {
   const [topupInfo, setTopupInfo] = useState({
     amount_options: [],
     discount: {},
+    enable_redemption: true,
+    payment_compliance_confirmed: true,
   });
 
   const confirmPayMethods = [
@@ -647,7 +647,7 @@ const TopUp = () => {
                 ? data.waffo_min_topup
                 : enableWaffoPancakeTopUp
                   ? data.waffo_pancake_min_topup
-                : 1;
+                  : 1;
           setEnableOnlineTopUp(enableOnlineTopUp);
           setEnableStripeTopUp(enableStripeTopUp);
           setEnableCreemTopUp(enableCreemTopUp);
@@ -658,6 +658,15 @@ const TopUp = () => {
           setWaffoPancakeMinTopUp(data.waffo_pancake_min_topup || 1);
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
+          setTopUpLink(data.topup_link || '');
+          setTopupInfo((prev) => ({
+            ...prev,
+            enable_redemption: data.enable_redemption !== false,
+            payment_compliance_confirmed:
+              data.payment_compliance_confirmed !== false,
+            payment_compliance_terms_version:
+              data.payment_compliance_terms_version || '',
+          }));
 
           // 设置 Creem 产品
           try {
@@ -764,7 +773,6 @@ const TopUp = () => {
       // const minTopUpValue = statusState.status.min_topup || 1;
       // setMinTopUp(minTopUpValue);
       // setTopUpCount(minTopUpValue);
-      setTopUpLink(statusState.status.top_up_link || '');
       setPriceRatio(statusState.status.price || 1);
 
       setStatusLoading(false);
@@ -986,6 +994,7 @@ const TopUp = () => {
           activeSubscriptions={activeSubscriptions}
           allSubscriptions={allSubscriptions}
           reloadSubscriptionSelf={getSubscriptionSelf}
+          enableRedemption={topupInfo.enable_redemption !== false}
         />
         <InvitationCard
           t={t}
@@ -994,6 +1003,7 @@ const TopUp = () => {
           setOpenTransfer={setOpenTransfer}
           affLink={affLink}
           handleAffLinkClick={handleAffLinkClick}
+          complianceConfirmed={topupInfo.payment_compliance_confirmed !== false}
         />
       </div>
     </div>

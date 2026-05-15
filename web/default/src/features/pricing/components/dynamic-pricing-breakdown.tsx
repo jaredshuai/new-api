@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useMemo } from 'react'
 import { Tag as TagIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -21,6 +39,7 @@ import {
   MATCH_LT,
   MATCH_RANGE,
   SOURCE_TIME,
+  normalizeTierLabel,
   parseTiersFromExpr,
   splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
@@ -156,14 +175,11 @@ export function DynamicPricingBreakdown({
     return { symbol: '$', rate: 1 }
   }, [currency])
 
-  const priceSuffix = `${symbol}/1M tokens`
-
-  const { tiers, ruleGroups, baseExpr } = useMemo(() => {
+  const { tiers, ruleGroups } = useMemo(() => {
     const split = splitBillingExprAndRequestRules(expr)
     const parsedTiers = parseTiersFromExpr(split.billingExpr)
     const parsedRules = tryParseRequestRuleExpr(split.requestRuleExpr || '')
     return {
-      baseExpr: split.billingExpr,
       tiers: parsedTiers,
       ruleGroups: parsedRules || [],
     }
@@ -171,22 +187,33 @@ export function DynamicPricingBreakdown({
 
   const hasTiers = tiers.length > 0
   const hasRules = ruleGroups.length > 0
+  const normalizedMatchedTierLabel = normalizeTierLabel(
+    matchedTierLabel ?? undefined
+  )
 
   if (!expr) return null
 
-  if (!hasTiers && !hasRules) {
+  if (!hasTiers) {
     return (
       <section className='min-w-0 py-4'>
         <div className='mb-3 flex items-center gap-2'>
-          <span className='inline-flex size-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 shadow-sm dark:bg-amber-500/20 dark:text-amber-300'>
+          <span className='inline-flex size-6 items-center justify-center rounded-lg bg-amber-100 text-amber-700 shadow-sm dark:bg-amber-500/20 dark:text-amber-300'>
             <TagIcon className='size-3.5' />
           </span>
-          <span className='text-foreground text-base font-medium'>
-            {t('Dynamic Pricing')}
-          </span>
+          <div>
+            <div className='text-foreground text-base font-medium'>
+              {t('Special billing expression')}
+            </div>
+            <div className='text-muted-foreground text-xs'>
+              {t('Unable to parse structured pricing')}
+            </div>
+          </div>
+        </div>
+        <div className='text-muted-foreground mb-1 text-[10px] font-medium tracking-wider uppercase'>
+          {t('Raw expression')}
         </div>
         <code className='text-muted-foreground block text-xs break-all'>
-          {baseExpr || expr}
+          {expr}
         </code>
       </section>
     )
@@ -201,9 +228,9 @@ export function DynamicPricingBreakdown({
   })
 
   return (
-    <section className='min-w-0 py-4'>
-      <div className='mb-4 flex items-start gap-2'>
-        <span className='mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 shadow-sm dark:bg-amber-500/20 dark:text-amber-300'>
+    <section className='min-w-0 py-3 sm:py-4'>
+      <div className='mb-3 flex items-start gap-2 sm:mb-4'>
+        <span className='mt-0.5 inline-flex size-6 items-center justify-center rounded-lg bg-amber-100 text-amber-700 shadow-sm dark:bg-amber-500/20 dark:text-amber-300'>
           <TagIcon className='size-3.5' />
         </span>
         <div>
@@ -217,11 +244,70 @@ export function DynamicPricingBreakdown({
       </div>
 
       {hasTiers && (
-        <div className='mb-4'>
+        <div className='mb-3 sm:mb-4'>
           <div className='text-foreground mb-2 text-sm font-semibold'>
             {t('Tiered price table')}
           </div>
-          <div className='-mx-4 max-w-[calc(100%+2rem)] overflow-x-auto sm:mx-0 sm:max-w-full'>
+          <div className='space-y-1.5 sm:hidden'>
+            {tiers.map((tier, i) => {
+              const condSummary = formatConditionSummary(tier.conditions, t)
+              const isMatched =
+                matchedTierLabel != null &&
+                matchedTierLabel !== '' &&
+                tier.label === matchedTierLabel
+              return (
+                <div
+                  key={`tier-mobile-${i}`}
+                  className={cn(
+                    'rounded-md border p-2',
+                    isMatched && 'border-emerald-500/40 bg-emerald-500/10'
+                  )}
+                >
+                  <div className='mb-1.5 flex flex-wrap items-center gap-1.5'>
+                    <Badge
+                      variant='secondary'
+                      className='bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+                    >
+                      {tier.label || t('Default')}
+                    </Badge>
+                    {isMatched && (
+                      <Badge
+                        variant='secondary'
+                        className='bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                      >
+                        {t('Matched')}
+                      </Badge>
+                    )}
+                  </div>
+                  {condSummary && (
+                    <div className='text-muted-foreground mb-1.5 text-xs'>
+                      {condSummary}
+                    </div>
+                  )}
+                  <div className='grid grid-cols-2 gap-x-3 gap-y-1.5'>
+                    {visiblePriceFields.map((v) => {
+                      const value = Number(
+                        tier[v.field as string as keyof ParsedTier] || 0
+                      )
+                      return (
+                        <div key={v.field} className='min-w-0'>
+                          <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+                            {t(v.shortLabel)}
+                          </div>
+                          <div className='truncate font-mono text-sm font-semibold'>
+                            {value > 0
+                              ? `${symbol}${(value * rate).toFixed(4)}`
+                              : '-'}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className='hidden overflow-x-auto sm:block'>
             <Table className='text-sm'>
               <TableHeader>
                 <TableRow className='hover:bg-transparent'>
@@ -233,7 +319,7 @@ export function DynamicPricingBreakdown({
                       key={v.field}
                       className='text-muted-foreground py-2 text-right text-[10px] font-medium tracking-wider uppercase'
                     >
-                      {`${t(v.shortLabel)} (${priceSuffix})`}
+                      {t(v.shortLabel)}
                     </TableHead>
                   ))}
                 </TableRow>
@@ -242,9 +328,9 @@ export function DynamicPricingBreakdown({
                 {tiers.map((tier, i) => {
                   const condSummary = formatConditionSummary(tier.conditions, t)
                   const isMatched =
-                    matchedTierLabel != null &&
-                    matchedTierLabel !== '' &&
-                    tier.label === matchedTierLabel
+                    normalizedMatchedTierLabel !== '' &&
+                    normalizeTierLabel(tier.label) ===
+                      normalizedMatchedTierLabel
                   return (
                     <TableRow
                       key={`tier-${i}`}

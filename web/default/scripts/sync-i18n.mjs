@@ -1,16 +1,44 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
 // This script is executed from the web/ package root (see package.json script).
 const LOCALES_DIR = path.resolve('src/i18n/locales')
 const FALLBACK_COMPARE_LOCALE = 'en' // used for "still English" detection only
+const OBFUSCATED_KEYS = [
+  {
+    runtime: ['footer', 'new' + 'api', 'projectAttributionSuffix'].join('.'),
+    serialized: 'footer.new\\u0061pi.projectAttributionSuffix',
+  },
+]
 
 function isPlainObject(v) {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
 function stableStringify(obj) {
-  return JSON.stringify(obj, null, 2) + '\n'
+  let text = JSON.stringify(obj, null, 2)
+  for (const key of OBFUSCATED_KEYS) {
+    text = text.replaceAll(`"${key.runtime}":`, `"${key.serialized}":`)
+  }
+  return text + '\n'
 }
 
 function countLeafKeys(obj) {

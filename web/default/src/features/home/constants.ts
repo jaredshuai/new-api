@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 /**
  * Home page constants
  * All hardcoded data for home page sections
@@ -42,24 +60,24 @@ export const GATEWAY_FEATURES = [
 // Stats section - Default statistics
 export const DEFAULT_STATS = [
   {
+    value: '50',
+    suffix: '+',
+    description: 'upstream services integrated',
+  },
+  {
     value: '100',
-    suffix: 'M+',
-    description: 'requests served',
+    suffix: '+',
+    description: 'model billing support',
   },
   {
     value: '50',
     suffix: '+',
-    description: 'AI models supported',
-  },
-  {
-    value: '99.9',
-    suffix: '%',
-    description: 'uptime',
+    description: 'compatible API routes',
   },
   {
     value: '10',
-    suffix: 'K+',
-    description: 'active users',
+    suffix: '+',
+    description: 'scheduling controls',
   },
 ] as const
 
@@ -84,7 +102,7 @@ export const DEFAULT_FEATURES = [
   },
   {
     title: 'Developer Friendly',
-    description: 'Complete API documentation with multi-language SDK support',
+    description: 'Compatible API routes for common AI application workflows',
     iconName: 'Code',
   },
   {
@@ -103,8 +121,8 @@ export const DEFAULT_FEATURES = [
     iconName: 'Users',
   },
   {
-    title: 'Technical Support',
-    description: 'Professional team providing 24/7 technical support',
+    title: 'Open Source',
+    description: 'Community driven, self-hosted, and extensible',
     iconName: 'HeartHandshake',
   },
 ] as const

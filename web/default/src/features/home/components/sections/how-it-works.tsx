@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Settings, Zap, BarChart3 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnimateInView } from '@/components/animate-in-view'
@@ -18,7 +36,7 @@ export function HowItWorks() {
       num: '2',
       title: t('Connect'),
       desc: t(
-        'Use our unified OpenAI-compatible endpoint in your applications'
+        'Connect through OpenAI, Claude, Gemini, and other compatible API routes'
       ),
       icon: <Zap className='size-6' strokeWidth={1.5} />,
     },
@@ -42,13 +60,7 @@ export function HowItWorks() {
           </h2>
         </AnimateInView>
 
-        <div className='relative grid gap-8 md:grid-cols-3 md:gap-12'>
-          {/* Connecting line (desktop) */}
-          <div
-            aria-hidden
-            className='from-border/0 via-border to-border/0 absolute top-12 right-[20%] left-[20%] hidden h-px bg-gradient-to-r md:block'
-          />
-
+        <div className='grid gap-8 md:grid-cols-3 md:gap-12'>
           {steps.map((step, i) => (
             <AnimateInView
               key={step.num}

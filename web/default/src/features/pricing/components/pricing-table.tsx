@@ -1,5 +1,22 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useState, useCallback } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import {
   flexRender,
   getCoreRowModel,
@@ -29,11 +46,11 @@ export interface PricingTableProps {
   usdExchangeRate?: number
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
+  onModelClick?: (modelName: string) => void
 }
 
 export function PricingTable(props: PricingTableProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate({ from: '/pricing/' })
   const {
     models,
     isLoading = false,
@@ -41,6 +58,7 @@ export function PricingTable(props: PricingTableProps) {
     usdExchangeRate = 1,
     tokenUnit = DEFAULT_TOKEN_UNIT,
     showRechargePrice = false,
+    onModelClick,
   } = props
 
   const [pagination, setPagination] = useState<PaginationState>({
@@ -68,13 +86,9 @@ export function PricingTable(props: PricingTableProps) {
 
   const handleRowClick = useCallback(
     (model: PricingModel) => {
-      navigate({
-        to: '/pricing/$modelId',
-        params: { modelId: model.model_name },
-        search: (prev) => prev,
-      })
+      onModelClick?.(model.model_name)
     },
-    [navigate]
+    [onModelClick]
   )
 
   return (

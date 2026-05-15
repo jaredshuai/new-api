@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useEffect, useRef } from 'react'
 import { Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -40,9 +58,9 @@ export function SearchBar(props: SearchBarProps) {
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
         className={cn(
-          'border-border/60 bg-muted/30 placeholder:text-muted-foreground/50',
-          'hover:border-border hover:bg-muted/50',
-          'focus:bg-background focus:border-primary/50 focus:ring-primary/20 focus:ring-2',
+          'border-border/60 bg-background placeholder:text-muted-foreground/50',
+          'hover:border-border',
+          'focus:border-primary/50 focus:ring-primary/20 focus:ring-2',
           'h-10 w-full rounded-lg border pr-16 pl-10 text-sm transition-all outline-none'
         )}
         aria-label={t('Search models')}
